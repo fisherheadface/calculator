@@ -77,6 +77,8 @@
   button.op { background: var(--op); }
   button.op:hover { background: var(--op-hover); }
   button.wide { grid-column: span 2; }
+  button.fn { font-size: 16px; padding: 12px 0; color: var(--muted); }
+  button.fn:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -86,172 +88,103 @@
       <div class="display" id="display">0</div>
     </div>
     <div class="keys" id="keys">
-      <button data-action="clear">AC</button>
-      <button data-action="negate">+/-</button>
-      <button data-action="percent">%</button>
-      <button class="op" data-op="/">÷</button>
+      <button class="fn" data-key="angle" id="angle" title="Toggle degrees / radians (D)">DEG</button>
+      <button class="fn" data-key="sin" title="Sine (S)">sin</button>
+      <button class="fn" data-key="cos" title="Cosine (O)">cos</button>
+      <button class="fn" data-key="tan" title="Tangent (T)">tan</button>
 
-      <button data-digit="7">7</button>
-      <button data-digit="8">8</button>
-      <button data-digit="9">9</button>
-      <button class="op" data-op="*">×</button>
+      <button class="fn" data-key="sq" title="Square (Q)">x²</button>
+      <button class="fn" data-key="sqrt" title="Square root (@)">√x</button>
+      <button class="fn" data-key="^" title="Power (^ or Y)">xʸ</button>
+      <button class="fn" data-key="root" title="y-th root (Shift+Y)">ʸ√x</button>
 
-      <button data-digit="4">4</button>
-      <button data-digit="5">5</button>
-      <button data-digit="6">6</button>
-      <button class="op" data-op="-">−</button>
+      <button class="fn" data-key="inv" title="Reciprocal (R)">1/x</button>
+      <button class="fn" data-key="fact" title="Factorial (!)">n!</button>
+      <button class="fn" data-key="ln" title="Natural log (N)">ln</button>
+      <button class="fn" data-key="log" title="Log base 10 (L)">log</button>
 
-      <button data-digit="1">1</button>
-      <button data-digit="2">2</button>
-      <button data-digit="3">3</button>
-      <button class="op" data-op="+">+</button>
+      <button class="fn" data-key="pi" title="Pi (P)">π</button>
+      <button class="fn" data-key="e" title="Euler's number (E)">e</button>
+      <button class="fn wide" data-key="back" title="Backspace">⌫</button>
 
-      <button class="wide" data-digit="0">0</button>
-      <button data-action="decimal">.</button>
-      <button class="op" data-action="equals">=</button>
+      <button data-key="clear">AC</button>
+      <button data-key="negate">+/-</button>
+      <button data-key="percent">%</button>
+      <button class="op" data-key="/">÷</button>
+
+      <button data-key="7">7</button>
+      <button data-key="8">8</button>
+      <button data-key="9">9</button>
+      <button class="op" data-key="*">×</button>
+
+      <button data-key="4">4</button>
+      <button data-key="5">5</button>
+      <button data-key="6">6</button>
+      <button class="op" data-key="-">−</button>
+
+      <button data-key="1">1</button>
+      <button data-key="2">2</button>
+      <button data-key="3">3</button>
+      <button class="op" data-key="+">+</button>
+
+      <button class="wide" data-key="0">0</button>
+      <button data-key=".">.</button>
+      <button class="op" data-key="=">=</button>
     </div>
   </main>
+<script src="calc.js"></script>
 <script>
 (function () {
   "use strict";
 
-  var current = "0";
-  var stored = null;
-  var pendingOp = null;
-  var justEvaluated = false;
-  var freshNumber = false; // true when the next digit must start a new number
+  var state = Calc.initial();
 
   var display = document.getElementById("display");
   var history = document.getElementById("history");
-
-  var SYMBOL = { "+": "+", "-": "−", "*": "×", "/": "÷" };
+  var angle = document.getElementById("angle");
 
   function render() {
-    var text = current;
+    var text = state.current;
     // Group the integer part with thousands separators for readability.
     var negative = text.startsWith("-");
     var body = negative ? text.slice(1) : text;
     var parts = body.split(".");
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     display.textContent = (negative ? "-" : "") + parts.join(".");
+    history.textContent = state.history;
+    angle.textContent = state.angle.toUpperCase();
   }
 
-  function setHistory() {
-    history.textContent = stored !== null && pendingOp
-      ? stored + " " + SYMBOL[pendingOp]
-      : "";
-  }
-
-  function inputDigit(d) {
-    if (justEvaluated) { current = "0"; justEvaluated = false; freshNumber = false; }
-    if (freshNumber) { current = d; freshNumber = false; }
-    else if (current === "0") current = d;
-    else current += d;
-    if (current.replace(/[-.]/g, "").length > 12) {
-      current = current.slice(0, current.length - 1);
-    }
-    render();
-  }
-
-  function inputDecimal() {
-    if (justEvaluated) { current = "0"; justEvaluated = false; freshNumber = false; }
-    if (freshNumber) { current = "0."; freshNumber = false; }
-    else if (!current.includes(".")) current += ".";
-    render();
-  }
-
-  function compute(a, op, b) {
-    var x = parseFloat(a), y = parseFloat(b);
-    switch (op) {
-      case "+": return x + y;
-      case "-": return x - y;
-      case "*": return x * y;
-      case "/": return y === 0 ? NaN : x / y;
-    }
-    return y;
-  }
-
-  function format(n) {
-    if (!isFinite(n)) return "Error";
-    var r = Math.round(n * 1e10) / 1e10;
-    return String(r);
-  }
-
-  function chooseOp(op) {
-    if (pendingOp && !justEvaluated && stored !== null) {
-      var result = format(compute(stored, pendingOp, current));
-      current = result;
-      render();
-    }
-    stored = current;
-    pendingOp = op;
-    justEvaluated = false;
-    freshNumber = true;
-    setHistory();
-  }
-
-  function equals() {
-    if (pendingOp === null || stored === null) return;
-    var expr = stored + " " + SYMBOL[pendingOp] + " " + current + " =";
-    current = format(compute(stored, pendingOp, current));
-    history.textContent = expr;
-    stored = null;
-    pendingOp = null;
-    justEvaluated = true;
-    freshNumber = true;
-    render();
-  }
-
-  function clearAll() {
-    current = "0"; stored = null; pendingOp = null; justEvaluated = false; freshNumber = false;
-    history.textContent = "";
-    render();
-  }
-
-  function negate() {
-    current = current.startsWith("-") ? current.slice(1) : "-" + current;
-    render();
-  }
-
-  function percent() {
-    current = format(parseFloat(current) / 100);
+  function press(key) {
+    state = Calc.press(state, key);
     render();
   }
 
   document.getElementById("keys").addEventListener("click", function (e) {
     var btn = e.target.closest("button");
-    if (!btn) return;
-    if (btn.dataset.digit !== undefined) inputDigit(btn.dataset.digit);
-    else if (btn.dataset.op) chooseOp(btn.dataset.op);
-    else {
-      switch (btn.dataset.action) {
-        case "decimal": inputDecimal(); break;
-        case "equals": equals(); break;
-        case "clear": clearAll(); break;
-        case "negate": negate(); break;
-        case "percent": percent(); break;
-      }
-    }
+    if (btn) press(btn.dataset.key);
   });
 
   var KEYMAP = {
-    "+": function () { chooseOp("+"); },
-    "-": function () { chooseOp("-"); },
-    "*": function () { chooseOp("*"); },
-    "x": function () { chooseOp("*"); },
-    "/": function () { chooseOp("/"); },
-    "=": equals,
-    "Enter": equals,
-    "Escape": clearAll,
-    "c": clearAll,
-    "%": percent
+    "+": "+", "-": "-", "*": "*", "x": "*", "/": "/",
+    "=": "=", "Enter": "=",
+    "Escape": "clear", "c": "clear",
+    "%": "percent",
+    "Backspace": "back",
+    "^": "^", "y": "^", "Y": "root",
+    "q": "sq", "@": "sqrt", "r": "inv", "!": "fact",
+    "n": "ln", "l": "log",
+    "s": "sin", "o": "cos", "t": "tan", "d": "angle",
+    "p": "pi", "e": "e"
   };
 
   document.addEventListener("keydown", function (e) {
-    if (e.key >= "0" && e.key <= "9") { inputDigit(e.key); return; }
-    if (e.key === "." || e.key === ",") { inputDecimal(); return; }
-    var fn = KEYMAP[e.key] || KEYMAP[e.key.toLowerCase()];
-    if (fn) { e.preventDefault(); fn(); }
+    // Leave browser shortcuts (Ctrl+R, Cmd+P, ...) alone.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key >= "0" && e.key <= "9") { press(e.key); return; }
+    if (e.key === "." || e.key === ",") { press("."); return; }
+    var key = KEYMAP[e.key] || KEYMAP[e.key.toLowerCase()];
+    if (key) { e.preventDefault(); press(key); }
   });
 
   render();
