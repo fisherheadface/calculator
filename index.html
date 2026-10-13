@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculator</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --key: #232833;
+    --key-hover: #2c3341;
+    --op: #2f6fed;
+    --op-hover: #3d7df7;
+    --text: #eef1f6;
+    --muted: #8b93a3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b2030, var(--bg));
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .calc {
+    width: min(92vw, 360px);
+    background: var(--panel);
+    border: 1px solid #262b36;
+    border-radius: 20px;
+    padding: 18px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+  .screen {
+    text-align: right;
+    padding: 14px 14px 18px;
+    min-height: 92px;
+  }
+  .history {
+    font-size: 14px;
+    color: var(--muted);
+    min-height: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .display {
+    font-size: 44px;
+    font-weight: 600;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .keys {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  button {
+    font: inherit;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--key);
+    border: none;
+    border-radius: 14px;
+    padding: 16px 0;
+    cursor: pointer;
+    transition: background .12s ease, transform .05s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover { background: var(--key-hover); }
+  button:active { transform: scale(.97); }
+  button.op { background: var(--op); }
+  button.op:hover { background: var(--op-hover); }
+  button.wide { grid-column: span 2; }
+</style>
+</head>
+<body>
+  <main class="calc">
+    <div class="screen">
+      <div class="history" id="history"></div>
+      <div class="display" id="display">0</div>
+    </div>
+    <div class="keys" id="keys">
+      <button data-action="clear">AC</button>
+      <button data-action="negate">+/-</button>
+      <button data-action="percent">%</button>
+      <button class="op" data-op="/">÷</button>
+
+      <button data-digit="7">7</button>
+      <button data-digit="8">8</button>
+      <button data-digit="9">9</button>
+      <button class="op" data-op="*">×</button>
+
+      <button data-digit="4">4</button>
+      <button data-digit="5">5</button>
+      <button data-digit="6">6</button>
+      <button class="op" data-op="-">−</button>
+
+      <button data-digit="1">1</button>
+      <button data-digit="2">2</button>
+      <button data-digit="3">3</button>
+      <button class="op" data-op="+">+</button>
+
+      <button class="wide" data-digit="0">0</button>
+      <button data-action="decimal">.</button>
+      <button class="op" data-action="equals">=</button>
+    </div>
+  </main>
+<script>
+(function () {
+  "use strict";
+
+  var current = "0";
+  var stored = null;
+  var pendingOp = null;
+  var justEvaluated = false;
+
+  var display = document.getElementById("display");
+  var history = document.getElementById("history");
+
+  var SYMBOL = { "+": "+", "-": "−", "*": "×", "/": "÷" };
+
+  function render() {
+    var text = current;
+    // Group the integer part with thousands separators for readability.
+    var negative = text.startsWith("-");
+    var body = negative ? text.slice(1) : text;
+    var parts = body.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    display.textContent = (negative ? "-" : "") + parts.join(".");
+  }
+
+  function setHistory() {
+    history.textContent = stored !== null && pendingOp
+      ? stored + " " + SYMBOL[pendingOp]
+      : "";
+  }
+
+  function inputDigit(d) {
+    if (justEvaluated) { current = "0"; justEvaluated = false; }
+    if (current === "0") current = d;
+    else current += d;
+    if (current.replace(/[-.]/g, "").length > 12) {
+      current = current.slice(0, current.length - 1);
+    }
+    render();
+  }
+
+  function inputDecimal() {
+    if (justEvaluated) { current = "0"; justEvaluated = false; }
+    if (!current.includes(".")) current += ".";
+    render();
+  }
+
+  function compute(a, op, b) {
+    var x = parseFloat(a), y = parseFloat(b);
+    switch (op) {
+      case "+": return x + y;
+      case "-": return x - y;
+      case "*": return x * y;
+      case "/": return y === 0 ? NaN : x / y;
+    }
+    return y;
+  }
+
+  function format(n) {
+    if (!isFinite(n)) return "Error";
+    var r = Math.round(n * 1e10) / 1e10;
+    return String(r);
+  }
+
+  function chooseOp(op) {
+    if (pendingOp && !justEvaluated && stored !== null) {
+      var result = format(compute(stored, pendingOp, current));
+      current = result;
+      render();
+    }
+    stored = current;
+    pendingOp = op;
+    justEvaluated = false;
+    setHistory();
+  }
+
+  function equals() {
+    if (pendingOp === null || stored === null) return;
+    var expr = stored + " " + SYMBOL[pendingOp] + " " + current + " =";
+    current = format(compute(stored, pendingOp, current));
+    history.textContent = expr;
+    stored = null;
+    pendingOp = null;
+    justEvaluated = true;
+    render();
+  }
+
+  function clearAll() {
+    current = "0"; stored = null; pendingOp = null; justEvaluated = false;
+    history.textContent = "";
+    render();
+  }
+
+  function negate() {
+    current = current.startsWith("-") ? current.slice(1) : "-" + current;
+    render();
+  }
+
+  function percent() {
+    current = format(parseFloat(current) / 100);
+    render();
+  }
+
+  document.getElementById("keys").addEventListener("click", function (e) {
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    if (btn.dataset.digit !== undefined) inputDigit(btn.dataset.digit);
+    else if (btn.dataset.op) chooseOp(btn.dataset.op);
+    else {
+      switch (btn.dataset.action) {
+        case "decimal": inputDecimal(); break;
+        case "equals": equals(); break;
+        case "clear": clearAll(); break;
+        case "negate": negate(); break;
+        case "percent": percent(); break;
+      }
+    }
+  });
+
+  var KEYMAP = {
+    "+": function () { chooseOp("+"); },
+    "-": function () { chooseOp("-"); },
+    "*": function () { chooseOp("*"); },
+    "x": function () { chooseOp("*"); },
+    "/": function () { chooseOp("/"); },
+    "=": equals,
+    "Enter": equals,
+    "Escape": clearAll,
+    "c": clearAll,
+    "%": percent
+  };
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key >= "0" && e.key <= "9") { inputDigit(e.key); return; }
+    if (e.key === "." || e.key === ",") { inputDecimal(); return; }
+    var fn = KEYMAP[e.key] || KEYMAP[e.key.toLowerCase()];
+    if (fn) { e.preventDefault(); fn(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
