@@ -119,6 +119,7 @@
   var stored = null;
   var pendingOp = null;
   var justEvaluated = false;
+  var freshNumber = false; // true when the next digit must start a new number
 
   var display = document.getElementById("display");
   var history = document.getElementById("history");
@@ -142,8 +143,9 @@
   }
 
   function inputDigit(d) {
-    if (justEvaluated) { current = "0"; justEvaluated = false; }
-    if (current === "0") current = d;
+    if (justEvaluated) { current = "0"; justEvaluated = false; freshNumber = false; }
+    if (freshNumber) { current = d; freshNumber = false; }
+    else if (current === "0") current = d;
     else current += d;
     if (current.replace(/[-.]/g, "").length > 12) {
       current = current.slice(0, current.length - 1);
@@ -152,8 +154,9 @@
   }
 
   function inputDecimal() {
-    if (justEvaluated) { current = "0"; justEvaluated = false; }
-    if (!current.includes(".")) current += ".";
+    if (justEvaluated) { current = "0"; justEvaluated = false; freshNumber = false; }
+    if (freshNumber) { current = "0."; freshNumber = false; }
+    else if (!current.includes(".")) current += ".";
     render();
   }
 
@@ -183,6 +186,7 @@
     stored = current;
     pendingOp = op;
     justEvaluated = false;
+    freshNumber = true;
     setHistory();
   }
 
@@ -194,11 +198,12 @@
     stored = null;
     pendingOp = null;
     justEvaluated = true;
+    freshNumber = true;
     render();
   }
 
   function clearAll() {
-    current = "0"; stored = null; pendingOp = null; justEvaluated = false;
+    current = "0"; stored = null; pendingOp = null; justEvaluated = false; freshNumber = false;
     history.textContent = "";
     render();
   }
