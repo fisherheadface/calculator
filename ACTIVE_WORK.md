@@ -1,103 +1,79 @@
-# ACTIVE_WORK — Milestone M2: the calculator becomes scientific
+# ACTIVE_WORK — M2.1: precision is lost between operations
 
-**Boundary written before implementation. Evidence declared up front. Do not expand scope.**
+**Defect found after M2 acceptance. Fixed inside the same milestone. Boundary written
+before implementation; evidence declared up front. Do not expand scope.**
 
-## Outcome
+## The defect
 
-The single-page calculator at `index.html` gains a scientific function set, and its
-arithmetic engine becomes independently testable. The page keeps working at
-`https://fisherheadface.github.io/calculator/` with no build step and no dependencies.
+The engine applies the display rounding to its own state, so every intermediate result
+loses precision before the next operation sees it.
+
+Reproduced on the deployed page:
+
+| Keys | M2 shows | Correct |
+| --- | --- | --- |
+| `9 √x √x x²` | `3.0000000001` | `3` |
+| `2 √x x²` | `2.0000000001` | `2` |
+| `9 √x √x` | `1.7320508076` | `1.7320508076` *(display is right — the stored value is not)* |
+
+Root cause: `format()` is called when a value is **stored**, not only when it is
+**rendered**. `√3` is held as the ten-decimal string `1.7320508076`; squaring that string
+gives 3.0000000001.
 
 ## Required behaviour
 
-**Unary functions — apply immediately to the value on screen:**
+- **The state carries the full-precision value. Rounding is presentation-only.** A value
+  that has been computed, or inserted as a constant, must keep its exact floating-point
+  value across any number of subsequent operations; only the text drawn on screen is
+  rounded to 10 decimal places.
+- **Every M2 behaviour is unchanged** — the function set, the semantics, the keyboard
+  shortcuts, the thousands grouping, the `Error` cases, left-to-right evaluation, and the
+  display for any single operation. `π` still *displays* `3.1415926536`, but the value
+  carried forward is `Math.PI`.
+- Typed input keeps its 12-significant-digit cap. That is a limit on what the user can
+  type, not on what the engine computes.
+- A result produced by `=` is the exact value and can be operated on further without loss.
 
-- `x²` — square
-- `√x` — square root
-- `1/x` — reciprocal
-- `n!` — factorial
-- `ln` — natural log
-- `log` — log base 10
+## Acceptance cases — verify each of these explicitly
 
-**Binary operators — take a second operand, using the same interaction as `+ − × ÷`
-(operator, then a fresh number, then `=`):**
+Chained irrationals, all of which must come out exact:
 
-- `xʸ` — arbitrary exponent
-- `ʸ√x` — arbitrary root: the first operand is the radicand, the second is the
-  root degree. `8 ʸ√ 3 =` is 2.
+| Keys | Must show |
+| --- | --- |
+| `9 √x √x x²` | `3` |
+| `2 √x x²` | `2` |
+| `2 √x √x √x √x x² x² x² x²` | `2` |
+| `9 √x x² x² x²` | `9` |
+| `π` then `sin`, in RAD | `0` |
+| `1 ÷ 3 = × 3 =` | `1` |
+| `2 xʸ 0.5 = x²` | `2` |
+| `9 √x √x` *(display only)* | `1.7320508076` |
 
-**Trigonometry — unary, with a DEG/RAD toggle:**
-
-- `sin`, `cos`, `tan`. **Default DEG.** The toggle changes the mode for subsequent
-  trig calls and is visible in the UI.
-
-**Constants — insert as the current number:**
-
-- `π` and `e`
-
-**Navigation:**
-
-- `⌫` — backspace one digit. (Everything else in this milestone keeps its current
-  behaviour: `AC`, `±`, `%`, `.`, `=`, and full keyboard input.)
-
-## Semantics that must be exact
-
-These are the cases that produce silent wrong answers, so they are pinned:
-
-- **Evaluation stays left-to-right. No operator precedence is introduced.** `2 + 3 × 4`
-  is 20, as it is today. Changing this is out of scope.
-- A digit typed **after an operator or after `=` starts a new number.** This is the
-  behaviour M1 fixed; it must not regress.
-- **Error, not a number, for:** division by zero · `√` of a negative · `ln`/`log` of a
-  value ≤ 0 · `n!` of a negative or non-integer · `ʸ√x` where the degree is even and the
-  radicand is negative · `xʸ` producing a non-finite result.
-- `0^0` is `1`.
-- `n!` for n ≤ 170 must be exact; above that it is `Error` (overflow to Infinity).
-- Trig uses the toggle's mode. `tan 90°` is `Error` (non-finite).
-- Display rounds to at most 10 decimal places to hide floating-point noise
-  (`0.1 + 0.2` shows `0.3`).
-- The existing 12-significant-digit input cap stays.
-
-## Architecture — decided, implement as stated
-
-- **`calc.js`** — the engine, pure functions only, no DOM access. It attaches itself to
-  `globalThis.Calc` and also sets `module.exports = Calc` when `module` exists, so the
-  same file loads in the browser and in Node with no build step.
-- **`index.html`** — presentation and input only; loads `calc.js` with a plain
-  `<script src="calc.js">` tag. It must keep working when opened directly from disk
-  (`file://`), so do not use ES module `import`/`export`.
-- **`tests/engine.test.cjs`** — Node's built-in test runner (`node:test` +
-  `node:assert`). No test framework dependency.
-- **`package.json`** — `"test": "node --test tests/"`, nothing else. No dependencies.
-- Update `README.md` to describe the new function set.
+And these must be unchanged from M2: `12 + 3 =` → `15` · `2 + 3 × 4 =` → `20` ·
+`9 / 0 =` → `Error` · `0.1 + 0.2 =` → `0.3` · `2 xʸ 10 =` → `1,024` ·
+`9 √x` → `3` · `170 n!` → the same value as M2 · `tan 90°` in DEG → `Error`.
 
 ## Must not change
 
-- No build step, no bundler, no framework, no runtime dependency. The repo stays a
-  static site served from the repository root on `main`.
-- The four existing operators must keep producing exactly the results they do today.
-- Keyboard input must keep working, and the new functions need keyboard shortcuts.
-- `README.md`'s claim that it is deliberately domain-free is still true — do not add
-  anything project-specific.
+- No build step, no bundler, no framework, no runtime dependency. Static site, repo root, `main`.
+- `calc.js` stays DOM-free and still loads as a plain `<script>` (no ES modules) as well
+  as via `require()` in Node.
+- The test command stays `node --test` (bare — the directory form is unsupported on Node 24).
 
 ## Evidence required — this is what acceptance is judged on
 
-Declare these in your final report, and nothing else counts:
-
-1. The command you ran to test, and **its full output pasted verbatim** — not a summary
-   of it. `node --test tests/` passing is the gate.
-2. The list of files you created or changed.
-3. Any case in the "Semantics" section above that you could **not** satisfy, named
-   explicitly — or the statement that all of them hold.
-4. `git diff --stat` for the change.
-
-A passing test run is evidence, not the outcome. Report honestly; a named failure is
-worth more than a silent gap.
+1. **The command you ran, with its full output pasted verbatim.** `npm test` passing is the gate.
+2. **Each acceptance case above, with the value you actually got.** If a case fails, say so
+   by name instead of omitting it.
+3. **Any pre-existing test that had to change, named individually, with the reason.** Some
+   existing tests may assert the old, buggy behaviour — that is expected. Silently editing a
+   test to make it pass is a defect; naming it is a finding.
+4. The list of files changed, and `git diff --stat`.
+5. `node --test` run against Node 24.21.0.
 
 ## Stop conditions
 
-- Anything that requires a **product decision** (what a button does, what the user sees,
-  what is in or out of scope) — **stop and report it. Do not choose for the Product
-  Owner.**
-- Anything that requires a **dependency or a build step** — stop and report.
+- Any change that alters what the user **sees** for a single operation — stop and report,
+  that is out of scope.
+- Any need for a dependency or a build step — stop and report.
 - Do not touch any file outside this repository.

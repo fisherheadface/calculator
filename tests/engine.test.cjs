@@ -215,18 +215,71 @@ test("history shows the pending and evaluated expression", () => {
   assert.strictEqual(run("1 2 * 3 =").history, "12 × 3 =");
 });
 
+test("M2.1: chained irrationals keep full precision between operations", () => {
+  assert.strictEqual(show("9 sqrt sqrt sq"), "3");
+  assert.strictEqual(show("2 sqrt sq"), "2");
+  assert.strictEqual(show("2 sqrt sqrt sqrt sqrt sq sq sq sq"), "2");
+  // ACTIVE_WORK lists "9 √x x² x² x²" → 9, but 3² = 9, 9² = 81, 81² = 6561.
+  assert.strictEqual(show("9 sqrt sq sq sq"), "6561");
+  assert.strictEqual(show("9 sqrt sqrt sq sq"), "9");
+  assert.strictEqual(run("angle pi sin").current, "0");
+  assert.strictEqual(show("1 / 3 = * 3 ="), "1");
+  assert.strictEqual(show("2 ^ . 5 = sq"), "2");
+  assert.strictEqual(show("9 sqrt sqrt"), "1.7320508076");
+  assert.strictEqual(show("2 sqrt + 2 sqrt = sq"), "8");
+  assert.strictEqual(show("2 sqrt negate sq"), "2");
+  assert.strictEqual(show("2 sqrt percent * 1 0 0 = sq"), "2");
+});
+
+test("M2.1: rounding is presentation-only; the state carries the exact value", () => {
+  const pi = run("pi");
+  assert.strictEqual(pi.current, "3.1415926536");
+  assert.strictEqual(pi.value, Math.PI);
+  assert.strictEqual(run("e").value, Math.E);
+  assert.strictEqual(run("3 sqrt").value, Math.sqrt(3));
+  assert.strictEqual(run("1 / 3 =").value, 1 / 3);
+  assert.strictEqual(run("1 / 3 +").storedValue, 1 / 3);
+  assert.strictEqual(run("1 / 3 +").history, "0.3333333333 +");
+  assert.strictEqual(run("1 / 3 = * 3 =").history, "0.3333333333 × 3 =");
+  // Typing replaces the carried value with the typed one.
+  assert.strictEqual(run("pi 2").value, null);
+  assert.strictEqual(show("pi 2 sq"), "4");
+  assert.strictEqual(show("1 / 3 = 3 sq"), "9");
+  assert.strictEqual(show("1 / 3 = . 5 sq"), "0.25");
+  assert.strictEqual(run("pi clear").value, null);
+});
+
+test("M2.1: M2 results are unchanged", () => {
+  assert.strictEqual(show("1 2 + 3 ="), "15");
+  assert.strictEqual(show("2 + 3 * 4 ="), "20");
+  assert.strictEqual(show("9 / 0 ="), "Error");
+  assert.strictEqual(show(". 1 + . 2 ="), "0.3");
+  assert.strictEqual(show("2 ^ 1 0 ="), "1024");
+  assert.strictEqual(show("9 sqrt"), "3");
+  assert.strictEqual(show("1 7 0 fact"), "7.257415615307999e+306");
+  assert.strictEqual(show("9 0 tan"), "Error");
+});
+
 // ---------------------------------------------------------------------------
 // The four original operators must keep producing today's results. This is the
 // pre-M2 logic from index.html (commit 0ea2472) with the DOM removed, used as
 // an oracle against the new engine on random key sequences.
-function legacy() {
+//
+// legacy(true) applies the M2.1 fix to the oracle: computed values are carried
+// at full precision (value/storedValue) and only the displayed text is rounded.
+// legacy() is the untouched pre-M2 behaviour, which rounded stored values.
+function legacy(fullPrecision) {
   var current = "0", stored = null, pendingOp = null, justEvaluated = false, freshNumber = false;
+  var value = null, storedValue = null;
   var historyText = "";
   var SYMBOL = { "+": "+", "-": "−", "*": "×", "/": "÷" };
   function setHistory() {
     historyText = stored !== null && pendingOp ? stored + " " + SYMBOL[pendingOp] : "";
   }
+  function exact() { return value !== null ? value : parseFloat(current); }
+  function setResult(n) { current = format(n); value = fullPrecision ? n : null; }
   function inputDigit(d) {
+    value = null;
     if (justEvaluated) { current = "0"; justEvaluated = false; freshNumber = false; }
     if (freshNumber) { current = d; freshNumber = false; }
     else if (current === "0") current = d;
@@ -234,6 +287,7 @@ function legacy() {
     if (current.replace(/[-.]/g, "").length > 12) current = current.slice(0, current.length - 1);
   }
   function inputDecimal() {
+    value = null;
     if (justEvaluated) { current = "0"; justEvaluated = false; freshNumber = false; }
     if (freshNumber) { current = "0."; freshNumber = false; }
     else if (!current.includes(".")) current += ".";
@@ -254,18 +308,19 @@ function legacy() {
     return String(r);
   }
   function chooseOp(op) {
-    if (pendingOp && !justEvaluated && stored !== null) current = format(compute(stored, pendingOp, current));
-    stored = current; pendingOp = op; justEvaluated = false; freshNumber = true;
+    if (pendingOp && !justEvaluated && stored !== null) setResult(compute(storedValue, pendingOp, exact()));
+    stored = current; storedValue = exact(); pendingOp = op; justEvaluated = false; freshNumber = true;
     setHistory();
   }
   function equals() {
     if (pendingOp === null || stored === null) return;
     var expr = stored + " " + SYMBOL[pendingOp] + " " + current + " =";
-    current = format(compute(stored, pendingOp, current));
+    setResult(compute(storedValue, pendingOp, exact()));
     historyText = expr; stored = null; pendingOp = null; justEvaluated = true; freshNumber = true;
   }
   function clearAll() {
     current = "0"; stored = null; pendingOp = null; justEvaluated = false; freshNumber = false;
+    value = null; storedValue = null;
     historyText = "";
   }
   return {
@@ -275,8 +330,11 @@ function legacy() {
       else if (k === ".") inputDecimal();
       else if (k === "=") equals();
       else if (k === "clear") clearAll();
-      else if (k === "negate") current = current.startsWith("-") ? current.slice(1) : "-" + current;
-      else if (k === "percent") current = format(parseFloat(current) / 100);
+      else if (k === "negate") {
+        if (value !== null) value = -value;
+        current = current.startsWith("-") ? current.slice(1) : "-" + current;
+      }
+      else if (k === "percent") setResult(exact() / 100);
     },
     get current() { return current; },
     get history() { return historyText; },
@@ -284,24 +342,27 @@ function legacy() {
   };
 }
 
-test("original operators match the pre-M2 calculator (randomised)", (t) => {
+test("original operators match the pre-M2 calculator, at full precision (randomised)", (t) => {
   // Deterministic PRNG so failures reproduce.
   let seed = 12345;
   const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   const KEYS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "1", "2", "5", "7", "9",
     ".", "+", "-", "*", "/", "=", "negate", "percent", "clear"];
   const SEQUENCES = 20000, LENGTH = 40;
-  let presses = 0, integerFixes = 0;
+  let presses = 0, integerFixes = 0, precisionFixes = 0;
   for (let i = 0; i < SEQUENCES; i++) {
-    const old = legacy();
+    const old = legacy(true), pristine = legacy();
+    let diverged = false;
     let s = Calc.initial();
     const seq = [];
     for (let j = 0; j < LENGTH; j++) {
       const k = KEYS[Math.floor(rand() * KEYS.length)];
       seq.push(k);
       old.press(k);
+      pristine.press(k);
       s = Calc.press(s, k);
       presses++;
+      if (!diverged && old.current !== pristine.current) { diverged = true; precisionFixes++; }
       const where = "after: " + seq.join(" ");
       if (s.current !== old.current) {
         // The one permitted difference: pre-M2 added decimal noise to an
@@ -317,6 +378,7 @@ test("original operators match the pre-M2 calculator (randomised)", (t) => {
     }
   }
   t.diagnostic(`${presses} key presses compared; ${integerFixes} differed, all integer-noise fixes`);
+  t.diagnostic(`${precisionFixes} of ${SEQUENCES} sequences differ from pre-M2 because values are no longer rounded between operations`);
 });
 
 test("format differs from pre-M2 only where pre-M2 corrupted an integer", () => {
