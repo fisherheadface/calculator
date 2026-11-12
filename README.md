@@ -8,6 +8,11 @@ repo created, code committed, a page built and served, and a URL that changes
 when a new commit is pushed. It is deliberately domain-free so that any failure
 is a failure of the plumbing and nothing else.
 
+**It is a tool, not a project** (Kevin, 2026-11-12). Its value is the proof that the
+path from a commit to a deployed page works — for Hermes and for Claude Code alike —
+and nothing that is a product should grow inside it. A real application starts as its
+own repository, with its own boundary, rather than extending this one.
+
 ## What it does
 
 Add, subtract, multiply, divide, percent, sign flip, clear, plus a scientific
